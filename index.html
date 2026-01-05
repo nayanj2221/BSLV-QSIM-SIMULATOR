@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BSLV-QSim | Laboratory Edition</title>
+    
+    <!-- 1. Tailwind CSS for Styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 2. Babel for JSX Compilation (Allows React code in HTML) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- 3. Import Map to load React & Lucide Icons from CDN -->
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.263.1"
+      }
+    }
+    </script>
+
+    <style>
+        /* Custom Scrollbar for "Pro" feel */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #09090b; 
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #333; 
+            border-radius: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #555; 
+        }
+        body { background-color: #09090b; color: #E0E0E0; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- 4. The React Application Code -->
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useCallback, useMemo } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { 
+            Play, RotateCcw, Code, Circle, Activity, Cpu, GripVertical, Settings, 
+            Zap, Download, Layers, Split, BarChart2, CheckCircle2, Plus, Minus, 
+            HelpCircle, X as CloseIcon, Copy, FileText 
+        } from 'lucide-react';
+
+        // --- QUANTUM MATH ENGINE ---
+
+        class Complex {
+            constructor(r, i) { this.r = r; this.i = i; }
+            add(c) { return new Complex(this.r + c.r, this.i + c.i); }
+            sub(c) { return new Complex(this.r - c.r, this.i - c.i); }
+            mul(c) { return new Complex(this.r * c.r - this.i * c.i, this.r * c.i + this.i * c.r); }
+            mulReal(v) { return new Complex(this.r * v, this.i * v); }
+            magSq() { return this.r * this.r + this.i * this.i; }
+            phase() { return Math.atan2(this.i, this.r); }
+            toString() { 
+                const r = this.r.toFixed(4);
+                const i = this.i >= 0 ? `+${this.i.toFixed(4)}i` : `${this.i.toFixed(4)}i`;
+                return `${r}${i}`;
+            }
+        }
+
+        const ONE_OVER_ROOT_2 = 0.7071067811865475;
+
+        const GATES = {
+            I: [[new Complex(1, 0), new Complex(0, 0)], [new Complex(0, 0), new Complex(1, 0)]],
+            X: [[new Complex(0, 0), new Complex(1, 0)], [new Complex(1, 0), new Complex(0, 0)]],
+            Y: [[new Complex(0, 0), new Complex(0, -1)], [new Complex(0, 1), new Complex(0, 0)]],
+            Z: [[new Complex(1, 0), new Complex(0, 0)], [new Complex(0, 0), new Complex(-1, 0)]],
+            H: [[new Complex(ONE_OVER_ROOT_2, 0), new Complex(ONE_OVER_ROOT_2, 0)], [new Complex(ONE_OVER_ROOT_2, 0), new Complex(-ONE_OVER_ROOT_2, 0)]],
+            S: [[new Complex(1, 0), new Complex(0, 0)], [new Complex(0, 0), new Complex(0, 1)]],
+            sdg: [[new Complex(1, 0), new Complex(0, 0)], [new Complex(0, 0), new Complex(0, -1)]], 
+            T: [[new Complex(1, 0), new Complex(0, 0)], [new Complex(0, 0), new Complex(ONE_OVER_ROOT_2, ONE_OVER_ROOT_2)]],
+            tdg: [[new Complex(1, 0), new Complex(0, 0)], [new Complex(0, 0), new Complex(ONE_OVER_ROOT_2, -ONE_OVER_ROOT_2)]],
+            sqX: [[new Complex(0.5, 0.5), new Complex(0.5, -0.5)], [new Complex(0.5, -0.5), new Complex(0.5, 0.5)]],
+            sqXdg: [[new Complex(0.5, -0.5), new Complex(0.5, 0.5)], [new Complex(0.5, 0.5), new Complex(0.5, -0.5)]],
+            sqY: [[new Complex(0.5, 0.5), new Complex(-0.5, -0.5)], [new Complex(0.5, 0.5), new Complex(0.5, 0.5)]], 
+            M: [[new Complex(1, 0), new Complex(0, 0)], [new Complex(0, 0), new Complex(1, 0)]],
+            Bar: [[new Complex(1, 0), new Complex(0, 0)], [new Complex(0, 0), new Complex(1, 0)]],
+            R: [[new Complex(1, 0), new Complex(0, 0)], [new Complex(0, 0), new Complex(0, 0)]], 
+        };
+
+        const GATE_META = {
+            H: { gateId: "H", label: "H", color: "from-violet-500 to-indigo-900", glow: "shadow-[0_0_15px_rgba(139,92,246,0.6)]", desc: "Hadamard" },
+            X: { gateId: "X", label: "X", color: "from-emerald-400 to-teal-900", glow: "shadow-[0_0_15px_rgba(52,211,153,0.6)]", desc: "Pauli-X (NOT)" },
+            Y: { gateId: "Y", label: "Y", color: "from-emerald-400 to-teal-900", glow: "shadow-[0_0_15px_rgba(52,211,153,0.6)]", desc: "Pauli-Y" },
+            Z: { gateId: "Z", label: "Z", color: "from-blue-400 to-blue-900", glow: "shadow-[0_0_15px_rgba(96,165,250,0.6)]", desc: "Pauli-Z" },
+            S: { gateId: "S", label: "S", color: "from-blue-600 to-indigo-900", glow: "shadow-[0_0_15px_rgba(37,99,235,0.5)]", desc: "Phase 90°" },
+            "S†": { gateId: "sdg", label: "S†", color: "from-blue-800 to-slate-900", glow: "shadow-[0_0_10px_rgba(30,58,138,0.5)]", desc: "Phase -90°" },
+            T: { gateId: "T", label: "T", color: "from-rose-500 to-red-900", glow: "shadow-[0_0_15px_rgba(244,63,94,0.6)]", desc: "Phase 45°" },
+            "T†": { gateId: "tdg", label: "T†", color: "from-rose-700 to-red-950", glow: "shadow-[0_0_10px_rgba(159,18,57,0.5)]", desc: "Phase -45°" },
+            "√X": { gateId: "sqX", label: "√X", color: "from-teal-600 to-teal-950", glow: "shadow-[0_0_10px_rgba(20,184,166,0.5)]", desc: "Sqrt X" },
+            "√X†": { gateId: "sqXdg", label: "√X†", color: "from-teal-800 to-slate-900", glow: "shadow-[0_0_10px_rgba(20,184,166,0.3)]", desc: "Inv Sqrt X" },
+            "√Y": { gateId: "sqY", label: "√Y", color: "from-teal-600 to-teal-950", glow: "shadow-[0_0_10px_rgba(20,184,166,0.5)]", desc: "Sqrt Y" },
+            "•": { gateId: "ctrl", label: "", color: "from-gray-100 to-gray-400", glow: "shadow-[0_0_10px_rgba(255,255,255,0.8)]", desc: "Control (1)" },
+            "◦": { gateId: "actrl", label: "", color: "from-gray-800 to-black border-2 border-white", glow: "shadow-[0_0_5px_rgba(255,255,255,0.5)]", desc: "Anti-Control (0)" },
+            "Sw": { gateId: "swap", label: "Sw", color: "from-amber-500 to-orange-900", glow: "shadow-[0_0_15px_rgba(245,158,11,0.6)]", desc: "Swap" },
+            "iSw": { gateId: "iswap", label: "iSw", color: "from-amber-700 to-orange-950", glow: "shadow-[0_0_10px_rgba(245,158,11,0.4)]", desc: "iSwap" },
+            "M": { gateId: "M", label: "M", color: "from-gray-700 to-black border border-gray-500", glow: "shadow-[0_0_8px_rgba(100,100,100,0.5)]", desc: "Measurement (Z-Basis)" },
+            "|": { gateId: "Bar", label: "|", color: "from-gray-700 to-gray-700 w-1 rounded-none", glow: "", desc: "Barrier" },
+            "R": { gateId: "R", label: "R", color: "from-red-900 to-black border border-red-500", glow: "", desc: "Reset" },
+        };
+
+        const GATE_DOCS = {
+            "Classical & Pauli": [
+                { name: "H", full: "Hadamard", desc: "Creates a superposition state. Transforms basis state |0> into (|0> + |1>) / √2.", usage: "Place on a qubit to initiate quantum randomness." },
+                { name: "X", full: "Pauli-X (NOT)", desc: "Flips the qubit state. |0> becomes |1> and |1> becomes |0>.", usage: "Acts as a classical NOT gate." },
+                { name: "Y", full: "Pauli-Y", desc: "Rotates around the Y-axis by π. Maps |0> to i|1> and |1> to -i|0>.", usage: "Complex rotation combining bit and phase flips." },
+                { name: "Z", full: "Pauli-Z", desc: "Phase flip. Leaves |0> unchanged but maps |1> to -|1>.", usage: "Changes the phase of the qubit without affecting probability." }
+            ],
+            "Phase Operations": [
+                { name: "S", full: "S Gate", desc: "Rotates phase by 90° (π/2). Square root of Z gate.", usage: "Adds a complex phase 'i' to the |1> state." },
+                { name: "S†", full: "S Dagger", desc: "Rotates phase by -90° (-π/2). Inverse of S gate.", usage: "Reverses the effect of an S gate." },
+                { name: "T", full: "T Gate", desc: "Rotates phase by 45° (π/4). Crucial for fault-tolerant computing.", usage: "Adds a smaller phase shift than S." },
+                { name: "T†", full: "T Dagger", desc: "Rotates phase by -45° (-π/4). Inverse of T gate.", usage: "Reverses the effect of a T gate." }
+            ],
+            "Multi-Qubit Logic": [
+                { name: "•", full: "Control Node", desc: "Conditional Marker. Activates a target gate in the same column ONLY if this qubit is |1>.", usage: "1. Place '•' on q0. 2. Place 'X' on q1 in the same column. 3. This creates a CNOT gate." },
+                { name: "◦", full: "Anti-Control", desc: "Inverse Conditional. Activates a target gate ONLY if this qubit is |0>.", usage: "Use exactly like the Control Node, but triggers on 0." },
+                { name: "Sw", full: "Swap Gate", desc: "Exchanges the states of two qubits.", usage: "Must place two 'Sw' gates in the same column on different wires." }
+            ],
+            "Tools": [
+                { name: "M", full: "Measurement", desc: "Collapses the quantum state to |0> or |1> based on probability.", usage: "Place at the end of the circuit to read the final result." },
+                { name: "|", full: "Barrier", desc: "Visual separator. Prevents compiler optimizations across the line.", usage: "Use to organize circuit stages." },
+                { name: "R", full: "Reset", desc: "Resets a qubit back to the |0> state regardless of its current state.", usage: "Useful for reusing qubits." }
+            ]
+        };
+
+        const simulateAdvanced = (numQubits, grid) => {
+            const numStates = 1 << numQubits;
+            let state = new Array(numStates).fill(null).map((_, i) => i === 0 ? new Complex(1, 0) : new Complex(0, 0));
+            const timeSteps = grid[0].length;
+
+            for (let t = 0; t < timeSteps; t++) {
+                let controls = [];
+                let swaps = [];
+                let ops = [];
+
+                for (let q = 0; q < numQubits; q++) {
+                    const gName = grid[q][t];
+                    if (!gName) continue;
+                    if (gName === "•") controls.push({q, type: 1});
+                    else if (gName === "◦") controls.push({q, type: 0});
+                    else if (gName === "Sw" || gName === "iSw") swaps.push({q, type: gName});
+                    else {
+                        const gateId = GATE_META[gName]?.gateId || gName;
+                        if (GATES[gateId]) ops.push({ q, gateId });
+                    }
+                }
+
+                while (swaps.length >= 2) {
+                    const s1 = swaps.shift();
+                    const s2Idx = swaps.findIndex(s => s.type === s1.type);
+                    const s2 = s2Idx !== -1 ? swaps.splice(s2Idx, 1)[0] : swaps.shift();
+                    state = applySwap(state, numStates, s1.q, s2.q, controls, s1.type === "iSw");
+                }
+
+                for (let op of ops) {
+                    if (["M", "Bar", "R"].includes(op.gateId)) continue; 
+                    state = applyGate(state, numStates, op.q, op.gateId, controls);
+                }
+            }
+            return state;
+        };
+
+        const applyGate = (state, numStates, targetQ, gateId, controls) => {
+            const matrix = GATES[gateId];
+            if (!matrix) return state;
+            const newState = [...state];
+            const targetBit = 1 << targetQ;
+            for (let i = 0; i < numStates; i++) {
+                if ((i & targetBit) === 0) {
+                    const idx0 = i;
+                    const idx1 = i | targetBit;
+                    let active = true;
+                    for (let c of controls) {
+                        const bitVal = (i >> c.q) & 1;
+                        if (bitVal !== c.type) { active = false; break; }
+                    }
+                    if (active) {
+                        const a = state[idx0];
+                        const b = state[idx1];
+                        newState[idx0] = matrix[0][0].mul(a).add(matrix[0][1].mul(b));
+                        newState[idx1] = matrix[1][0].mul(a).add(matrix[1][1].mul(b));
+                    }
+                }
+            }
+            return newState;
+        };
+
+        const applySwap = (state, numStates, q1, q2, controls, isISwap) => {
+            const newState = [...state];
+            const b1 = 1 << q1;
+            const b2 = 1 << q2;
+            for (let i = 0; i < numStates; i++) {
+                if (((i & b1) === 0) && ((i & b2) !== 0)) {
+                    const idx0 = i; 
+                    const idx1 = i | b1 ^ b2; 
+                    let active = true;
+                    for (let c of controls) {
+                        const bitVal = (i >> c.q) & 1;
+                        if (bitVal !== c.type) { active = false; break; }
+                    }
+                    if (active) {
+                        const val0 = newState[idx0];
+                        const val1 = newState[idx1];
+                        if (isISwap) {
+                            newState[idx0] = new Complex(0, 1).mul(val1);
+                            newState[idx1] = new Complex(0, 1).mul(val0);
+                        } else {
+                            newState[idx0] = val1;
+                            newState[idx1] = val0;
+                        }
+                    }
+                }
+            }
+            return newState;
+        };
+
+        const calculateMarginals = (probs, numQubits) => {
+            const marginals = Array(numQubits).fill(0);
+            probs.forEach(p => {
+                const bits = parseInt(p.state, 2);
+                for (let q = 0; q < numQubits; q++) {
+                    if ((bits >> (numQubits - 1 - q)) & 1) marginals[q] += p.prob;
+                }
+            });
+            return marginals;
+        };
+
+        const generateCode = (numQubits, grid, timeSteps) => {
+            let qk = `from qiskit import QuantumCircuit\n\n# Create Circuit\nqc = QuantumCircuit(${numQubits}, ${numQubits})\n\n`;
+            let cq = `import cirq\n\n# Create Qubits\nq = [cirq.LineQubit(i) for i in range(${numQubits})]\n\n# Create Circuit\ncircuit = cirq.Circuit()\n`;
+            let pl = `import pennylane as qml\nimport numpy as np\n\n# Define Device\ndev = qml.device("default.qubit", wires=${numQubits})\n\n@qml.qnode(dev)\ndef circuit():\n`;
+            let qasm = `OPENQASM 3.0;\ninclude "stdgates.inc";\n\nqubit[${numQubits}] q;\nbit[${numQubits}] c;\n\n`;
+
+            for (let t = 0; t < timeSteps; t++) {
+                let colControls = [], colOps = [], colSwaps = [];
+                for (let q = 0; q < numQubits; q++) {
+                    const g = grid[q][t];
+                    if (!g) continue;
+                    if (g === "•") colControls.push({q, type: 1});
+                    else if (g === "◦") colControls.push({q, type: 0});
+                    else if (g === "Sw" || g === "iSw") colSwaps.push({q, type: g});
+                    else colOps.push({q, name: g});
+                }
+
+                while(colSwaps.length >= 2) {
+                    const s1 = colSwaps.shift();
+                    const s2 = colSwaps.splice(colSwaps.findIndex(s => s.type === s1.type), 1)[0];
+                    qasm += `swap q[${s1.q}], q[${s2.q}];\n`;
+                    qk += `qc.swap(${s1.q}, ${s2.q})\n`;
+                    cq += `circuit.append(cirq.SWAP(q[${s1.q}], q[${s2.q}]))\n`;
+                    pl += `    qml.SWAP(wires=[${s1.q}, ${s2.q}])\n`;
+                }
+
+                for(let op of colOps) {
+                    const opName = op.name.toLowerCase();
+                    if(op.name === "M") qasm += `c[${op.q}] = measure q[${op.q}];\n`;
+                    else if(op.name === "|") qasm += `barrier q[${op.q}];\n`;
+                    else {
+                        if(colControls.length > 0) {
+                            const ctrlStr = colControls.map(c => (c.type === 0 ? "neg" : "") + `ctrl(q[${c.q}])`).join(" @ ");
+                            qasm += `// Controlled ${op.name}: ${ctrlStr} -> q[${op.q}]\n`;
+                        } else {
+                            let n = op.name.replace("†","dg").replace("√","sq").toLowerCase();
+                            qasm += `${n} q[${op.q}];\n`;
+                        }
+                    }
+
+                    if(op.name === "M") qk += `qc.measure(${op.q}, ${op.q})\n`;
+                    else if(op.name === "|") qk += `qc.barrier(${op.q})\n`;
+                    else {
+                        let func = opName.replace("†","dg").replace("√","s").replace("s","s");
+                        if(op.name === "X") func = "x";
+                        if(op.name === "H") func = "h";
+                        if(op.name === "Z") func = "z";
+                        if(op.name === "Y") func = "y";
+                        if(op.name === "S") func = "s";
+                        if(op.name === "S†") func = "sdg";
+                        if(op.name === "T") func = "t";
+                        if(op.name === "T†") func = "tdg";
+                        if(op.name === "√X") func = "sx";
+                        if(colControls.length > 0) {
+                            if(colControls.length === 1 && op.name === "X" && colControls[0].type === 1) qk += `qc.cx(${colControls[0].q}, ${op.q})\n`;
+                            else { const ctrls = colControls.map(c => c.q); qk += `qc.mcx([${ctrls}], ${op.q})\n`; }
+                        } else qk += `qc.${func}(${op.q})\n`;
+                    }
+
+                    if(op.name === "M") cq += `circuit.append(cirq.measure(q[${op.q}]))\n`;
+                    else if(op.name !== "|") {
+                        let gate = `cirq.${op.name.replace("†","**-1").replace("√","**0.5")}`;
+                        if(["X","Y","Z","H","S","T"].includes(op.name)) gate = `cirq.${op.name}`;
+                        if(op.name === "S†") gate = `cirq.S**-1`;
+                        if(op.name === "T†") gate = `cirq.T**-1`;
+                        if(op.name === "√X") gate = `cirq.X**0.5`;
+                        let str = `circuit.append(${gate}(q[${op.q}])`;
+                        if(colControls.length > 0) {
+                            const ctrls = colControls.map(c => `q[${c.q}]`).join(", ");
+                            str = `circuit.append(${gate}(q[${op.q}]).controlled_by(${ctrls}))`;
+                        }
+                        cq += str + "\n";
+                    }
+
+                    if(op.name !== "M" && op.name !== "|") {
+                        let gate = `qml.Pauli${op.name}`;
+                        if(op.name === "H") gate = "qml.Hadamard";
+                        if(op.name === "S") gate = "qml.S";
+                        if(op.name === "T") gate = "qml.T";
+                        if(op.name === "√X") gate = "qml.SX";
+                        if(colControls.length > 0) {
+                            if(colControls.length === 1 && op.name === "X") pl += `    qml.CNOT(wires=[${colControls[0].q}, ${op.q}])\n`;
+                            else pl += `    ${gate}(wires=${op.q}) # + Controls\n`;
+                        } else pl += `    ${gate}(wires=${op.q})\n`;
+                    }
+                }
+            }
+            pl += `    return qml.probs(wires=range(${numQubits}))`;
+            return { qasm, qiskit: qk, cirq: cq, pennylane: pl };
+        };
+
+        // --- COMPONENTS ---
+
+        const ParticleGate = ({ name, isDraggable = false, onDragStart }) => {
+            const meta = GATE_META[name] || { color: "from-gray-500 to-gray-700", label: name, glow: "" };
+            const isDot = name === "•" || name === "◦";
+            const isBar = name === "|";
+            let sizeClass = "w-10 h-10 rounded-full";
+            if (isDot) sizeClass = "w-5 h-5 rounded-full";
+            if (isBar) sizeClass = "w-2 h-10 rounded-none";
+            const labelClass = isDot || isBar ? "hidden" : "text-white font-bold text-xs font-mono drop-shadow-md";
+            const borderClass = name === "◦" ? "border-2 border-white" : "border border-white/20";
+            const measureClass = name === "M" ? "rounded-md" : "";
+
+            return (
+                <div 
+                    draggable={isDraggable}
+                    onDragStart={onDragStart}
+                    title={meta.desc}
+                    className={`relative flex items-center justify-center bg-gradient-to-br ${meta.color} ${meta.glow} ${sizeClass} ${borderClass} ${measureClass} ${isDraggable ? 'cursor-grab hover:scale-110 active:cursor-grabbing transition-transform' : 'cursor-pointer'} ring-1 ring-white/10`}
+                >
+                    {!isDot && !isBar && <div className="absolute top-1 left-2 w-[40%] h-[30%] bg-gradient-to-b from-white/40 to-transparent rounded-full blur-[1px]"></div>}
+                    <span className={labelClass}>{meta.label}</span>
+                    {name === "M" && <div className="absolute inset-0 flex items-center justify-center opacity-30"><Activity size={12} color="white"/></div>}
+                </div>
+            );
+        };
+
+        const ResultsOrb = ({ amplitude, prob, stateStr }) => {
+            const phase = amplitude.phase(); 
+            const deg = phase * (180 / Math.PI);
+            const hue = (deg + 360) % 360; 
+            
+            return (
+                <div className="flex flex-col items-center gap-2 group relative p-2 rounded-xl transition-colors hover:bg-white/5">
+                    <div className="w-14 h-14 relative flex items-center justify-center">
+                        <div className="absolute inset-0 rounded-full blur-md opacity-60 transition-all duration-500" style={{ background: `conic-gradient(from 0deg, transparent 0%, hsl(${hue}, 80%, 50%) ${prob * 100}%, transparent ${prob * 100}%)`, transform: 'rotate(-90deg)' }}></div>
+                        <div className="w-full h-full rounded-full border border-gray-600 bg-[#0a0a0a] relative overflow-hidden shadow-inner flex items-center justify-center">
+                            <div className="absolute top-1/2 left-1/2 w-1/2 h-0.5 origin-left bg-white shadow-[0_0_5px_white]" style={{ transform: `rotate(${-deg}deg)` }}></div>
+                            <div className="absolute top-1/2 left-1/2 w-1 h-1 bg-white rounded-full -translate-x-1/2 -translate-y-1/2"></div>
+                        </div>
+                        <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none">
+                            <circle cx="28" cy="28" r="26" fill="none" stroke={`hsl(${hue}, 80%, 60%)`} strokeWidth="2" strokeDasharray={`${prob * 163} 163`} strokeLinecap="round" className="transition-all duration-500" />
+                        </svg>
+                    </div>
+                    <div className="flex flex-col items-center">
+                        <div className="font-mono text-xs text-gray-300 font-bold tracking-wider">|{stateStr}⟩</div>
+                        <div className="text-[10px] text-gray-500">{(prob * 100).toFixed(1)}%</div>
+                    </div>
+                    <div className="absolute bottom-20 left-1/2 -translate-x-1/2 w-48 bg-[#18181b] border border-[#27272a] p-3 rounded-lg shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50">
+                        <div className="flex justify-between items-center mb-1">
+                            <span className="text-white font-bold text-xs">State |{stateStr}⟩</span>
+                            <span className="text-[10px] text-blue-400 bg-blue-400/10 px-1 rounded">{(prob*100).toFixed(4)}%</span>
+                        </div>
+                        <div className="text-[10px] text-gray-400 font-mono">
+                            <div>Amp: {amplitude.toString()}</div>
+                            <div>Mag: {Math.sqrt(prob).toFixed(5)}</div>
+                            <div>Phase: {deg.toFixed(2)}°</div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const GateReferenceModal = ({ onClose }) => {
+            return (
+                <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-8">
+                    <div className="bg-[#121212] border border-[#333] w-full max-w-5xl h-[85vh] rounded-2xl flex flex-col shadow-2xl overflow-hidden relative">
+                        <div className="flex items-center justify-between p-6 border-b border-[#333] bg-[#18181b]">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-blue-600/20 rounded-lg"><HelpCircle className="text-blue-400" size={24}/></div>
+                                <div><h2 className="text-xl font-bold text-white tracking-wide">Quantum Gate Reference</h2><p className="text-xs text-gray-400 mt-1">Operational manual</p></div>
+                            </div>
+                            <button onClick={onClose} className="p-2 hover:bg-[#333] rounded-full text-gray-400 hover:text-white transition"><CloseIcon size={24} /></button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-[#09090b]">
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                {Object.entries(GATE_DOCS).map(([category, items]) => (
+                                    <div key={category} className="space-y-4">
+                                        <h3 className="text-sm font-bold text-blue-500 uppercase tracking-widest border-b border-[#333] pb-2 mb-4">{category}</h3>
+                                        {items.map((gate) => (
+                                            <div key={gate.name} className="flex gap-4 p-4 bg-[#18181b] rounded-xl border border-[#27272a] hover:border-blue-900/50 transition-colors group">
+                                                <div className="shrink-0 pt-1"><div className="scale-75 origin-top-left"><ParticleGate name={gate.name} /></div></div>
+                                                <div className="space-y-2">
+                                                    <div className="flex items-baseline gap-2"><span className="text-base font-bold text-white">{gate.full}</span><code className="text-[10px] bg-[#333] px-1.5 py-0.5 rounded text-gray-300 font-mono">{gate.name}</code></div>
+                                                    <p className="text-sm text-gray-400 leading-relaxed">{gate.desc}</p>
+                                                    <div className="bg-[#121212] p-3 rounded-lg border border-[#333]"><span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">USAGE STRATEGY</span><p className="text-xs text-gray-300">{gate.usage}</p></div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        function BSLVQSimPro() {
+            const TIME_STEPS = 18;
+            const [numQubits, setNumQubits] = useState(5);
+            const [showHelp, setShowHelp] = useState(false);
+            const [grid, setGrid] = useState(Array(5).fill(null).map(() => Array(TIME_STEPS).fill(null)));
+            const [results, setResults] = useState([]);
+            const [marginals, setMarginals] = useState(Array(5).fill(0));
+            const [codes, setCodes] = useState({ qasm: "", qiskit: "", cirq: "", pennylane: "" });
+            const [activeCodeTab, setActiveCodeTab] = useState("qasm");
+            const [shotResults, setShotResults] = useState(null);
+
+            const updateQubits = (delta) => {
+                const newCount = Math.max(1, Math.min(10, numQubits + delta));
+                if (newCount === numQubits) return;
+                setNumQubits(newCount);
+                setGrid(prev => {
+                    if (newCount > prev.length) {
+                        const newRows = Array(newCount - prev.length).fill(null).map(() => Array(TIME_STEPS).fill(null));
+                        return [...prev, ...newRows];
+                    } else return prev.slice(0, newCount);
+                });
+                setMarginals(Array(newCount).fill(0));
+            };
+
+            useEffect(() => {
+                const finalState = simulateAdvanced(numQubits, grid);
+                const probs = finalState.map((c, idx) => ({ state: idx.toString(2).padStart(numQubits, '0'), prob: c.magSq(), amplitude: c }));
+                setResults(probs);
+                setMarginals(calculateMarginals(probs, numQubits));
+                setShotResults(null); 
+                setCodes(generateCode(numQubits, grid, TIME_STEPS));
+            }, [grid, numQubits]);
+
+            const handleDrop = (q, t, e) => { e.preventDefault(); const gateName = e.dataTransfer.getData("gate"); if (gateName) { const newGrid = grid.map(row => [...row]); newGrid[q][t] = gateName; setGrid(newGrid); } };
+            const handleDragOver = (e) => e.preventDefault();
+            const handleCellClick = (q, t, e) => { e.preventDefault(); const newGrid = grid.map(row => [...row]); newGrid[q][t] = null; setGrid(newGrid); };
+            const clearGrid = () => setGrid(Array(numQubits).fill(null).map(() => Array(TIME_STEPS).fill(null)));
+            
+            const runExperiment = () => {
+                const SHOTS = 1024;
+                const counts = {};
+                for(let i=0; i<SHOTS; i++) {
+                    const rnd = Math.random();
+                    let cumulative = 0, selectedState = "";
+                    for(let res of results) { cumulative += res.prob; if(rnd <= cumulative) { selectedState = res.state; break; } }
+                    if(!selectedState && results.length > 0) selectedState = results[results.length-1].state;
+                    counts[selectedState] = (counts[selectedState] || 0) + 1;
+                }
+                const sortedCounts = Object.entries(counts).map(([k,v]) => ({state: k, count: v, percent: (v/SHOTS)*100})).sort((a,b) => b.count - a.count);
+                setShotResults(sortedCounts);
+            };
+
+            const handleCopyCode = () => navigator.clipboard.writeText(codes[activeCodeTab]);
+            const handleDownloadCode = () => {
+                const extension = activeCodeTab === 'qasm' ? 'qasm' : 'py';
+                const blob = new Blob([codes[activeCodeTab]], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = `bslv_qsim_circuit.${extension}`; a.click(); URL.revokeObjectURL(url);
+            };
+
+            return (
+                <div className="flex flex-col h-screen bg-[#09090b] text-[#E0E0E0] font-sans overflow-hidden selection:bg-blue-500/30">
+                    {showHelp && <GateReferenceModal onClose={() => setShowHelp(false)} />}
+                    <header className="h-12 border-b border-[#27272a] bg-[#09090b] flex items-center px-4 justify-between z-50">
+                        <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-2"><div className="w-8 h-8 rounded bg-gradient-to-tr from-blue-600 to-violet-600 flex items-center justify-center shadow-lg shadow-blue-500/20"><Activity className="w-5 h-5 text-white" /></div><div><h1 className="font-bold text-sm tracking-widest text-white">BSLV-QSIM</h1><span className="text-[10px] text-gray-400 font-mono block -mt-1">LABORATORY EDITION</span></div></div>
+                            <div className="h-4 w-[1px] bg-gray-700 mx-2"></div>
+                            <div className="flex items-center gap-2 bg-[#18181b] px-2 py-1 rounded border border-[#27272a]"><span className="text-xs text-gray-400 font-mono mr-2">QUBITS:</span><button onClick={() => updateQubits(-1)} className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white transition"><Minus size={12}/></button><span className="text-sm font-bold text-blue-400 w-4 text-center">{numQubits}</span><button onClick={() => updateQubits(1)} className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white transition"><Plus size={12}/></button></div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <button onClick={() => setShowHelp(true)} className="flex items-center gap-2 px-3 py-1.5 hover:bg-[#333] text-gray-400 hover:text-white rounded transition text-xs border border-transparent hover:border-[#444]"><HelpCircle size={14} /> Gate Info</button>
+                            <div className="h-4 w-[1px] bg-gray-700"></div>
+                            <button onClick={clearGrid} className="text-gray-400 hover:text-white transition p-2 hover:bg-white/10 rounded"><RotateCcw size={16} /></button>
+                            <button onClick={runExperiment} className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs text-white font-bold rounded-full transition shadow-[0_0_15px_rgba(37,99,235,0.4)]"><Play size={12} fill="currentColor" /> Run Experiment (1024 Shots)</button>
+                        </div>
+                    </header>
+                    <div className="flex flex-1 overflow-hidden">
+                        <div className="w-64 bg-[#09090b] border-r border-[#27272a] flex flex-col z-20 overflow-y-auto custom-scrollbar">
+                            <div className="p-5 space-y-8">
+                                <div><h3 className="text-[10px] font-bold text-blue-500 uppercase tracking-widest mb-4 flex items-center gap-2"><Zap size={12}/> Classical</h3><div className="grid grid-cols-4 gap-3 place-items-center">{["H", "X", "Y", "Z"].map(g => <ParticleGate key={g} name={g} isDraggable onDragStart={(e) => e.dataTransfer.setData("gate", g)} />)}</div></div>
+                                <div><h3 className="text-[10px] font-bold text-violet-500 uppercase tracking-widest mb-4 flex items-center gap-2"><Settings size={12}/> Phase</h3><div className="grid grid-cols-4 gap-3 place-items-center">{["S", "S†", "T", "T†"].map(g => <ParticleGate key={g} name={g} isDraggable onDragStart={(e) => e.dataTransfer.setData("gate", g)} />)}</div></div>
+                                <div><h3 className="text-[10px] font-bold text-teal-500 uppercase tracking-widest mb-4 flex items-center gap-2"><Layers size={12}/> Roots</h3><div className="grid grid-cols-4 gap-3 place-items-center">{["√X", "√X†", "√Y"].map(g => <ParticleGate key={g} name={g} isDraggable onDragStart={(e) => e.dataTransfer.setData("gate", g)} />)}</div></div>
+                                <div><h3 className="text-[10px] font-bold text-amber-500 uppercase tracking-widest mb-4 flex items-center gap-2"><GripVertical size={12}/> Multi-Qubit</h3><div className="grid grid-cols-4 gap-3 place-items-center"><ParticleGate name="•" isDraggable onDragStart={(e) => e.dataTransfer.setData("gate", "•")} /><ParticleGate name="◦" isDraggable onDragStart={(e) => e.dataTransfer.setData("gate", "◦")} /><ParticleGate name="Sw" isDraggable onDragStart={(e) => e.dataTransfer.setData("gate", "Sw")} /><ParticleGate name="iSw" isDraggable onDragStart={(e) => e.dataTransfer.setData("gate", "iSw")} /></div></div>
+                                <div><h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4 flex items-center gap-2"><Split size={12}/> Tools</h3><div className="grid grid-cols-4 gap-3 place-items-center">{["M", "|", "R"].map(g => <ParticleGate key={g} name={g} isDraggable onDragStart={(e) => e.dataTransfer.setData("gate", g)} />)}</div></div>
+                            </div>
+                        </div>
+                        <div className="flex-1 flex flex-col bg-[#0c0c0e] relative overflow-hidden">
+                            <div className="flex-1 overflow-auto relative custom-scrollbar">
+                                <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)', backgroundSize: '60px 60px' }}></div>
+                                <div className="p-10 min-w-max">
+                                    <div className="flex ml-20 mb-4 border-b border-gray-800 pb-2">{Array(TIME_STEPS).fill(0).map((_, i) => (<div key={i} className="w-[60px] text-center text-[10px] text-gray-600 font-mono opacity-50">{i+1}</div>))}</div>
+                                    {grid.map((wire, qIdx) => (
+                                        <div key={qIdx} className="flex items-center h-[60px] relative group hover:bg-white/5 transition-colors rounded-lg px-2">
+                                            <div className="w-20 flex flex-col items-end pr-6 justify-center border-r border-gray-800 h-full mr-2"><span className="font-mono text-sm text-blue-400 font-bold">q[{qIdx}]</span><span className="text-[10px] text-gray-600">|0⟩</span></div>
+                                            <div className="absolute left-20 right-0 h-[1px] bg-gray-700 group-hover:bg-gray-600 transition-colors top-1/2 z-0 shadow-[0_0_5px_rgba(0,0,0,0.5)]"></div>
+                                            <div className="flex relative z-10">
+                                                {wire.map((gate, tIdx) => {
+                                                    let hasControl = false, hasTarget = false, minRow = 999, maxRow = -1;
+                                                    for(let r=0; r<numQubits; r++) { const g = grid[r][tIdx]; if (g) { if (["•", "◦", "Sw", "iSw"].includes(g) || GATE_META[g]) { minRow = Math.min(minRow, r); maxRow = Math.max(maxRow, r); } if (["•", "◦"].includes(g)) hasControl = true; else if (g !== "|") hasTarget = true; } }
+                                                    const isConnected = hasControl && hasTarget && qIdx >= minRow && qIdx <= maxRow && gate !== "|";
+                                                    return (
+                                                        <div key={tIdx} onDrop={(e) => handleDrop(qIdx, tIdx, e)} onDragOver={handleDragOver} onClick={(e) => handleCellClick(qIdx, tIdx, e)} onContextMenu={(e) => handleCellClick(qIdx, tIdx, e)} className="w-[60px] h-[60px] flex items-center justify-center relative cursor-pointer">
+                                                            {isConnected && <div className="absolute top-0 bottom-0 w-[2px] bg-gray-500/50 -z-10 blur-[0.5px]"></div>}
+                                                            {gate && <ParticleGate name={gate} />}
+                                                            {!gate && <div className="w-2 h-2 rounded-full bg-gray-800 opacity-0 hover:opacity-100 transition-opacity"></div>}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                            <div className="ml-4 w-16 text-[10px] font-mono flex flex-col items-center opacity-70"><span className="text-gray-500 mb-1">P(|1⟩)</span><div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden"><div className="h-full bg-blue-500 transition-all duration-300" style={{width: `${(marginals[qIdx] || 0) * 100}%`}}></div></div><span className="text-blue-300 mt-1">{((marginals[qIdx] || 0) * 100).toFixed(1)}%</span></div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="h-64 bg-[#09090b] border-t border-[#27272a] flex z-30">
+                                <div className="flex-1 flex flex-col border-r border-[#27272a] min-w-[350px]">
+                                    <div className="h-10 bg-[#09090b] flex items-center justify-between px-4 border-b border-[#27272a]"><div className="flex items-center gap-2"><Circle size={14} className="text-emerald-500"/><span className="text-xs font-bold text-gray-300 tracking-wider">IDEAL STATEVECTOR</span></div></div>
+                                    <div className="flex-1 overflow-x-auto p-4 flex items-center gap-4 custom-scrollbar bg-[#050505]">{results.length === 0 ? <div className="text-gray-600 text-xs w-full text-center">Empty Circuit</div> : results.map((res, i) => ((res.prob > 0.0001 || numQubits < 4) && <ResultsOrb key={i} prob={res.prob} amplitude={res.amplitude} stateStr={res.state} />))}</div>
+                                </div>
+                                {shotResults && (
+                                    <div className="w-[280px] flex flex-col border-r border-[#27272a] bg-[#09090b]">
+                                        <div className="h-10 bg-[#09090b] flex items-center justify-between px-4 border-b border-[#27272a]"><div className="flex items-center gap-2"><BarChart2 size={14} className="text-blue-500"/><span className="text-xs font-bold text-gray-300 tracking-wider">EXPERIMENT (1024 SHOTS)</span></div></div>
+                                        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-2">{shotResults.map((s, i) => (<div key={i} className="flex flex-col gap-1"><div className="flex justify-between text-[10px] font-mono text-gray-400"><span>|{s.state}⟩</span><span>{s.count} ({s.percent.toFixed(1)}%)</span></div><div className="w-full bg-gray-800 h-2 rounded-full overflow-hidden"><div className="h-full bg-blue-600" style={{width: `${s.percent}%`}}></div></div></div>))}</div>
+                                    </div>
+                                )}
+                                <div className="w-[400px] flex flex-col bg-[#09090b]">
+                                    <div className="h-10 bg-[#09090b] flex items-center justify-between px-2 border-b border-[#27272a]">
+                                        <div className="flex items-center gap-2"><Code size={14} className="text-blue-500"/><div className="flex bg-[#18181b] rounded p-0.5">{['qasm', 'qiskit', 'cirq', 'pennylane'].map(tab => (<button key={tab} onClick={() => setActiveCodeTab(tab)} className={`px-2 py-0.5 text-[10px] uppercase font-bold rounded transition ${activeCodeTab === tab ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}>{tab === 'pennylane' ? 'PennyLane' : tab}</button>))}</div></div>
+                                        <div className="flex gap-2"><Copy size={12} className="text-gray-500 cursor-pointer hover:text-white" onClick={handleCopyCode} title="Copy to Clipboard" /><Download size={12} className="text-gray-500 cursor-pointer hover:text-white" onClick={handleDownloadCode} title="Download File" /></div>
+                                    </div>
+                                    <textarea className="w-full h-full bg-[#050505] text-blue-100/80 p-4 font-mono text-[11px] resize-none focus:outline-none border-none" readOnly value={codes[activeCodeTab]}></textarea>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<BSLVQSimPro />);
+    </script>
+</body>
+</html>
